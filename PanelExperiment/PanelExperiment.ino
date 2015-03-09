@@ -1,9 +1,11 @@
-//#include <TimerOne.h>
-#include <avr/io.h>
-#include <avr/interrupt.h>
+//#include <avr/io.h>
+//#include <avr/interrupt.h>
 #include "wavegen.h"
 #include "note_values.h"
 #include <MIDI.h>
+#include "Panel.h"
+
+Panel myPanel;
 
 uint8_t wavetable[256];
 uint8_t wavetable_ptr;
@@ -19,7 +21,7 @@ uint16_t freq_partial;
 uint16_t freq_partial_acu;
 
 MIDI_CREATE_DEFAULT_INSTANCE();
-  int stat1led = 7;
+int stat1led = 7;
 
 // -----------------------------------------------------------------------------
 void setup() 
@@ -36,11 +38,17 @@ void setup()
   set_freq(100);
   //Serial.println(freq_whole);
   //Serial.println(freq_partial);
-  
-  
+
+
   //Enable pin 13 for LED
   pinMode(13, OUTPUT);
+  //led
+  pinMode( 6, OUTPUT );
+  digitalWrite( 6, 1 );
   
+  
+  myPanel.init();
+
   //Start up timer1 on no pins
   TCCR1A = 0;
   TCCR1B = _BV(WGM13);// | _BV(CS10);
@@ -48,42 +56,42 @@ void setup()
   ICR1 = 100;//This is the reg to control the sample rate
   TCCR1B &= ~(_BV(CS10) | _BV(CS11) | _BV(CS12));
   TCCR1B |= _BV(CS10);  
-  
+
   //Start up timer2 on pin 11
   pinMode(11, OUTPUT);
   TCCR2A = _BV(COM2A1) | _BV(WGM21) | _BV(WGM20);
   TCCR2B = _BV(CS20);
   OCR2A = 1;//This is the reg to write to to control PWM
-  GTCCR &= ~(PSRSYNC);
+  GTCCR &= ~_BV(PSRSYNC);
   TIMSK1 = _BV(TOIE1);                                     // sets the timer overflow interrupt enable bit
   //Timer1.attachInterrupt( timerIsr ); // attach the service routine here
-  
-    // so it is called upon reception of a NoteOn.
-    MIDI.setHandleNoteOn(handleNoteOn);  // Put only the name of the function
+
+  // so it is called upon reception of a NoteOn.
+  MIDI.setHandleNoteOn(handleNoteOn);  // Put only the name of the function
 
     // Do the same for NoteOffs
-    MIDI.setHandleNoteOff(handleNoteOff);
-    
-    // For control
-    MIDI.setHandleControlChange(handleControlChange);
-    
+  MIDI.setHandleNoteOff(handleNoteOff);
+
+  // For control
+  MIDI.setHandleControlChange(handleControlChange);
+
   MIDI.begin(MIDI_CHANNEL_OMNI);
 }
 
 
 void handleNoteOn(byte channel, byte pitch, byte velocity)
 {
-    // Do whatever you want when a note is pressed.
-    last_key = pitch;
-    last_velo = velocity;
-    
-    set_freq(pitch);
-    digitalWrite(stat1led, 0);
-    //Serial.println(pitch);
+  // Do whatever you want when a note is pressed.
+  last_key = pitch;
+  last_velo = velocity;
 
-    // Try to keep your callbacks short (no delays ect)
-    // otherwise it would slow down the loop() and have a bad impact
-    // on real-time performance.
+  set_freq(pitch);
+  digitalWrite(stat1led, 0);
+  //Serial.println(pitch);
+
+  // Try to keep your callbacks short (no delays ect)
+  // otherwise it would slow down the loop() and have a bad impact
+  // on real-time performance.
 }
 
 void handleNoteOff(byte channel, byte pitch, byte velocity)
@@ -97,7 +105,7 @@ void handleNoteOff(byte channel, byte pitch, byte velocity)
   {
     //do nothing
   }
-    digitalWrite(stat1led, 1);
+  digitalWrite(stat1led, 1);
 
 }
 
@@ -113,10 +121,69 @@ void handleControlChange(byte channel, byte number, byte value)
 void loop()
 {
   // Main code loop
-  
+
   MIDI.read();
+
+  myPanel.update();
+  uint8_t gotShape = myPanel.ramp.newData | myPanel.sine.newData | myPanel.pulse.newData;
+  uint8_t gotRegister = myPanel.load.newData | myPanel.reg1.newData;
+  uint8_t gotKnob = myPanel.fine.newData | myPanel.coarse.newData | myPanel.master.newData;
+  
+  if( gotShape )
+  {
+    digitalWrite( 6, 0 );  //Set LED
+    //TIMSK1 = ~_BV(TOIE1);                                     //Stop int.
+    
+    int pulseOn = myPanel.pulse.getState();
+    int sineOn = myPanel.sine.getState();
+    int rampOn = myPanel.ramp.getState();
+    
+    int waveCalcTemp;
+    int numWaveAdded;
+    //Re-calculate shape
+    for(int i = 0; i < 256; i++)
+    {
+      waveCalcTemp = 0;
+      numWaveAdded = 0;
+      if( rampOn )
+      {
+        waveCalcTemp += get_sample( RAMPSHAPE, 100, 100, i );
+        numWaveAdded++;
+      }
+      if( sineOn )
+      {
+        waveCalcTemp += get_sample( SINESHAPE, 100, 100, i );
+        numWaveAdded++;
+      }
+      if( pulseOn )
+      {
+        waveCalcTemp += get_sample( PULSESHAPE, 50, 100, i );
+        numWaveAdded++;
+      }
+      
+      if( numWaveAdded > 0 )
+      {
+        wavetable[i] = ( waveCalcTemp / numWaveAdded ) & 0x000000FF;
+      }
+      else
+      {
+        wavetable[i] = 0;
+      }
+    }
+    //TIMSK1 = _BV(TOIE1);                                     //Start int.
+    digitalWrite( 6, 1 );  //Clear LED
+    
+  }
+  if( gotKnob )
+  {
+    //Process knob
+  }
+  if( gotRegister )
+  {
+    //Register functions here
+  }
 }
- 
+
 /// --------------------------
 /// Custom ISR Timer Routine
 /// --------------------------
@@ -124,19 +191,19 @@ ISR(TIMER1_OVF_vect)
 {
   //add the whole part
   wavetable_ptr += freq_whole;
-  
+
   //add the partial to the accumulator
   freq_partial_acu += freq_partial;
-  
+
   //if the partial is greater than 1, crop the accumulator and increment the pointer
   wavetable_ptr += freq_partial_acu >> 15;
   freq_partial_acu &= 0x7FFF;
-  
+
   wavetable_ptr &= 0x00FF;
   //scaling
   //output = wavesample * volume/127 + 127 - volume
   OCR2A = ((wavetable[wavetable_ptr] * last_volume) >> 7) + (127 - last_volume);
-    
+
 }
 
 //This function generates the whole and partial values, and PUTS THEM IN THE GLOBAL CONTEXT
@@ -182,3 +249,4 @@ char hex2char(int hexin)
   }  
   return charout;
 }
+
