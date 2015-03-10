@@ -51,7 +51,7 @@ void PanelKnob8Bit::init( uint8_t pinNum )
 void PanelKnob8Bit::update( void )
 {
   uint8_t tempState = analogRead( pinNumber ) >> 2;
-  if( state != tempState )
+  if( ( state > (tempState + 2) ) || ( state < (tempState - 2) ))
   {
     state = tempState;
     newData = 1;

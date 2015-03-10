@@ -5,7 +5,16 @@
 #include <MIDI.h>
 #include "Panel.h"
 
+//Panel related variables
 Panel myPanel;
+float coarseTune = 0;
+float fineTune = 0;
+float dutyCycle = 0.5;
+int8_t regCommand = -8;
+uint8_t masterFunction = 7;
+float rampVol = 1;
+float sineVol = 1;
+float pulseVol = 1;
 
 uint8_t wavetable[256];
 uint8_t wavetable_ptr;
@@ -14,6 +23,7 @@ uint8_t last_velo;
 uint8_t last_volume = 20;
 
 uint8_t last_key;
+uint8_t voiceMidiChannel = 1;
 
 //voice parameter variables:
 uint16_t freq_whole;
@@ -45,8 +55,8 @@ void setup()
   //led
   pinMode( 6, OUTPUT );
   digitalWrite( 6, 1 );
-  
-  
+
+
   myPanel.init();
 
   //Start up timer1 on no pins
@@ -82,11 +92,14 @@ void setup()
 void handleNoteOn(byte channel, byte pitch, byte velocity)
 {
   // Do whatever you want when a note is pressed.
-  last_key = pitch;
-  last_velo = velocity;
+  if( channel == voiceMidiChannel )
+  {
+    last_key = pitch;
+    last_velo = velocity;
 
-  set_freq(pitch);
-  digitalWrite(stat1led, 0);
+    set_freq(pitch);
+    digitalWrite(stat1led, 0);
+  }
   //Serial.println(pitch);
 
   // Try to keep your callbacks short (no delays ect)
@@ -96,25 +109,31 @@ void handleNoteOn(byte channel, byte pitch, byte velocity)
 
 void handleNoteOff(byte channel, byte pitch, byte velocity)
 {
-  if( pitch == last_key )
+  if( channel == voiceMidiChannel )
   {
-    //turn off, or in this case make very high frequency
-    //set_freq(127);
+    if( pitch == last_key )
+    {
+      //turn off, or in this case make very high frequency
+      //set_freq(127);
+    }
+    else //a new key has been pressed
+    {
+      //do nothing
+    }
+    digitalWrite(stat1led, 1);
   }
-  else //a new key has been pressed
-  {
-    //do nothing
-  }
-  digitalWrite(stat1led, 1);
 
 }
 
 void handleControlChange(byte channel, byte number, byte value)
 {
-  if(number == 7)
+  if( number == 7 )
   {
     last_volume = value;
-    digitalWrite(stat1led, 0);
+  }
+  if( value < 16 )
+  {
+    digitalWrite(stat1led, 1);
   }
 }
 
@@ -122,22 +141,44 @@ void loop()
 {
   // Main code loop
 
-  MIDI.read();
+    MIDI.read();
 
   myPanel.update();
-  uint8_t gotShape = myPanel.ramp.newData | myPanel.sine.newData | myPanel.pulse.newData;
-  uint8_t gotRegister = myPanel.load.newData | myPanel.reg1.newData;
-  uint8_t gotKnob = myPanel.fine.newData | myPanel.coarse.newData | myPanel.master.newData;
-  
+  uint8_t gotShape = myPanel.ramp.newData | myPanel.sine.newData | myPanel.pulse.newData | myPanel.master.newData;
+  //uint8_t gotRegister = myPanel.load.newData | myPanel.reg1.newData;
+  //uint8_t gotKnob = myPanel.fine.newData | myPanel.coarse.newData ;
+
   if( gotShape )
   {
     digitalWrite( 6, 0 );  //Set LED
     //TIMSK1 = ~_BV(TOIE1);                                     //Stop int.
-    
+    cli();
+    if( myPanel.master.newData )
+    {
+      myPanel.master.getState(); //dummy read
+      if( masterFunction == 0 )
+      {
+        dutyCycle = (float)myPanel.master.getState() / 255;
+      }
+      if( masterFunction == 1 )
+      {
+        rampVol = (float)myPanel.master.getState() / 255;
+      }
+      if( masterFunction == 2 )
+      {
+        sineVol = (float)myPanel.master.getState() / 255;
+      }
+      if( masterFunction == 3 )
+      {
+        pulseVol = (float)myPanel.master.getState() / 255;
+      }
+
+    }
+
     int pulseOn = myPanel.pulse.getState();
     int sineOn = myPanel.sine.getState();
     int rampOn = myPanel.ramp.getState();
-    
+
     int waveCalcTemp;
     int numWaveAdded;
     //Re-calculate shape
@@ -147,40 +188,81 @@ void loop()
       numWaveAdded = 0;
       if( rampOn )
       {
-        waveCalcTemp += get_sample( RAMPSHAPE, 100, 100, i );
+        waveCalcTemp += get_sample( RAMPSHAPE, rampVol, 1, i ) - 127;  //center
         numWaveAdded++;
       }
       if( sineOn )
       {
-        waveCalcTemp += get_sample( SINESHAPE, 100, 100, i );
+        waveCalcTemp += get_sample( SINESHAPE, sineVol, 1, i ) - 127;  //center
         numWaveAdded++;
       }
       if( pulseOn )
       {
-        waveCalcTemp += get_sample( PULSESHAPE, 50, 100, i );
+        waveCalcTemp += get_sample( PULSESHAPE, pulseVol, dutyCycle, i ) - 127;  //center
         numWaveAdded++;
       }
-      
+
       if( numWaveAdded > 0 )
       {
-        wavetable[i] = ( waveCalcTemp / numWaveAdded ) & 0x000000FF;
+        wavetable[i] = ( waveCalcTemp / numWaveAdded ) + 127;  //127 justify
       }
       else
       {
-        wavetable[i] = 0;
+        wavetable[i] = 127;
       }
     }
+    sei();
+    //GTCCR &= ~_BV(PSRSYNC);
     //TIMSK1 = _BV(TOIE1);                                     //Start int.
     digitalWrite( 6, 1 );  //Clear LED
-    
+
   }
-  if( gotKnob )
+  if( myPanel.fine.newData )
   {
-    //Process knob
+    //Process fine tune-- build the multiplier 2/3 to 4/3
+    //f(x) = 2/3 * 1/255 * x + 2/3
+    fineTune = myPanel.fine.getState() * .00261438 + 0.6666666;
+    set_freq( last_key );
+
   }
-  if( gotRegister )
+  if( myPanel.coarse.newData )
   {
-    //Register functions here
+    //Process fine tune-- build the multiplier 0.25 to 4
+    //f(x) = 7/2 * 1/255 * x + 0.5
+    coarseTune = myPanel.coarse.getState() * .0137255 + 0.25;
+    set_freq( last_key );
+
+  }
+
+
+  if( myPanel.load.newData && ( myPanel.load.getState() == 1) )
+  {
+    if( regCommand == -8 )
+    {
+      regCommand = myPanel.reg1.getState();
+      digitalWrite( 6, 0 );  //Set LED
+
+    }
+    else
+    {
+      switch( regCommand )  //Process last input command
+      {
+      case 0x07 :
+        //set midi channel;
+        voiceMidiChannel = myPanel.reg1.getState() + 1;
+        break;
+      case 0x00 :
+        //set master knob state
+        masterFunction = myPanel.reg1.getState();
+        break;
+      default :
+        break;
+      }
+      regCommand = -8;
+      digitalWrite( 6, 1 );  //Clear LED
+    }
+
+
   }
 }
 
@@ -213,7 +295,9 @@ ISR(TIMER1_OVF_vect)
 void set_freq( char note )  // Give the midi note number
 {
   float math_temp;
-  math_temp = note_frequency[note] * 256 / 80000;
+  math_temp = (note_frequency[note] * fineTune * coarseTune) * 256 / 80000;
+
+  //End tuning
   freq_whole = (uint16_t)math_temp;  //This can be unloaded into note_values.c if necessary
   freq_partial = (uint16_t)(( math_temp - freq_whole ) * 32768);
   return;
@@ -249,4 +333,9 @@ char hex2char(int hexin)
   }  
   return charout;
 }
+
+
+
+
+
 

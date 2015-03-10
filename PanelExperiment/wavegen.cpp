@@ -1,19 +1,19 @@
 #include "math.h"
 #include "wavegen.h"
+#include "arduino.h"
 
 //--------------------------------------------------------------------------------------
 // Generates a single sample of a 256 sample long waveform
 //
 // char shape is SINESHAPE, PULSESHAPE, RAMPSHAPE, or DCSHAPE
-// float duty, float amp are ranged 0.0 to 100.0
+// float duty, float amp
 // char sample is 0x00 to 0xFF
 //
 // Shapes are ~ +-127, scaled by amp/100, then output ranged 0 to 255 (but type int)
-int get_sample(char shape, float duty, float amp, char sample)
+int get_sample(uint8_t shape, float amp, float duty, uint8_t sample)
 {
 	int ret_val;
 	float ret_calc_var1;
-	duty = duty / 100;
 	
 	switch ( shape )
 	{
@@ -24,7 +24,7 @@ int get_sample(char shape, float duty, float amp, char sample)
 		break;
 	case PULSESHAPE:
 		//Is sample beyond duty cycle?
-		if (sample > (char)(255 * duty))
+		if (sample > (uint8_t)(255 * duty))
 		{
 			//is later than duty
 			ret_calc_var1 = -127;
@@ -53,10 +53,13 @@ int get_sample(char shape, float duty, float amp, char sample)
 		//Invalid amp.  Set to 1 but say nothing.
 		amp = 1;
 	}
+
 	// Scale here
 	ret_calc_var1 = ret_calc_var1 * amp;
-	// Shift here, cast
-	ret_val = (ret_calc_var1 + 0x7F);
+        ret_calc_var1 = ret_calc_var1 + 0x7F;
+
+	//cast
+	ret_val = (unsigned int)ret_calc_var1;
 
 
 	return ret_val;
