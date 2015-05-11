@@ -5,6 +5,10 @@
 #include <MIDI.h>
 #include "Panel.h"
 
+//Used for debug
+#include "GP2WireDebugger.h"
+GP2WireDebugger myDebugger;
+
 //Panel related variables
 Panel myPanel;
 float coarseTune = 1;
@@ -89,6 +93,10 @@ void setup()
   MIDI.setHandleControlChange(handleControlChange);
 
   MIDI.begin(MIDI_CHANNEL_OMNI);
+  
+  //Used for debug
+  myDebugger.beginOutputs(4, 5);//Clock, data
+  
 }
 
 
@@ -132,7 +140,7 @@ void handleControlChange(byte channel, byte number, byte value)
 {
   if( number == 7 )
   {
-    last_volume = value;
+    last_volume = value << 1;
   }
   if( value < 16 )
   {
@@ -161,23 +169,23 @@ void loop()
       myPanel.master.getState(); //dummy read
       if( masterFunction == 4 )
       {
-        dutyCycle = (float)myPanel.master.getState() / 255;
+        dutyCycle = (float)myPanel.master.getState() / 256;
       }
       if( masterFunction == 1 )
       {
-        rampVol = (float)myPanel.master.getState() / 255;
+        rampVol = (float)myPanel.master.getState() / 256;
       }
       if( masterFunction == 2 )
       {
-        sineVol = (float)myPanel.master.getState() / 255;
+        sineVol = (float)myPanel.master.getState() / 256;
       }
       if( masterFunction == 3 )
       {
-        pulseVol = (float)myPanel.master.getState() / 255;
+        pulseVol = (float)myPanel.master.getState() / 256;
       }
       if( masterFunction == 0 )  //Default state
       {
-        masterVol = (float)myPanel.master.getState() / 255;
+        masterVol = (float)myPanel.master.getState() / 256;
       }
     }
 
@@ -379,6 +387,17 @@ char hex2char(int hexin)
 }
 
 
+void sendDebugString( char* stringInput )
+{
+  uint8_t i = 0;
+  while( stringInput[i] != 0x00 )
+  {
+    myDebugger.sendByte( stringInput[i] );
+    delay(20);
+    i++;
+  }
+
+}
 
 
 

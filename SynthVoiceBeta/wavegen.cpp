@@ -2,6 +2,10 @@
 #include "wavegen.h"
 #include "arduino.h"
 
+//Used for debug
+#include "GP2WireDebugger.h"
+extern GP2WireDebugger myDebugger;
+
 //--------------------------------------------------------------------------------------
 // Generates a single sample of a 256 sample long waveform
 //
@@ -61,6 +65,14 @@ int get_sample(uint8_t shape, float amp, float duty, uint8_t sample)
 	//cast
 	ret_val = (unsigned int)ret_calc_var1;
 
+
+        myDebugger.sendByte('\n');
+        myDebugger.sendByte(':');
+        myDebugger.sendByte(myDebugger.hex2char(((uint8_t)sample >> 4) & 0x0F));
+        myDebugger.sendByte(myDebugger.hex2char((uint8_t)sample & 0x0F));
+        myDebugger.sendByte(',');
+        myDebugger.sendByte(myDebugger.hex2char(((uint8_t)ret_val >> 4) & 0x0F));
+        myDebugger.sendByte(myDebugger.hex2char((uint8_t)ret_val & 0x0F));
 
 	return ret_val;
 }
