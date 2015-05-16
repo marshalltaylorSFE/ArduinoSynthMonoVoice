@@ -7,19 +7,19 @@
 
 //Used for debug
 #include "GP2WireDebugger.h"
-GP2WireDebugger myDebugger;
+//GP2WireDebugger myDebugger;
 
 //Panel related variables
 Panel myPanel;
 float coarseTune = 1;
 float fineTune = 1;
-float dutyCycle = 0.5;
+uint8_t dutyCycle = 128;
 int8_t regCommand = -8;
 uint8_t masterFunction = 0;
-float rampVol = 1;
-float sineVol = 1;
-float pulseVol = 1;
-float masterVol = 1;
+uint8_t rampVol = 255;
+uint8_t sineVol = 255;
+uint8_t pulseVol = 255;
+uint8_t masterVol = 255;
 int8_t octaveAdjust = 0;
 uint8_t protectTuning = 1;
 
@@ -47,7 +47,7 @@ void setup()
   //Generate table from libraries
   for(int i = 0; i < 256; i++)
   {
-    wavetable[i] = (get_sample( SINESHAPE, 100, 100, i )) & 0x000000FF;
+    wavetable[i] = 128;
   }
 
   // initialize serial:
@@ -95,7 +95,7 @@ void setup()
   MIDI.begin(MIDI_CHANNEL_OMNI);
   
   //Used for debug
-  myDebugger.beginOutputs(4, 5);//Clock, data
+  //myDebugger.beginOutputs(4, 5);//Clock, data
   
 }
 
@@ -169,66 +169,36 @@ void loop()
       myPanel.master.getState(); //dummy read
       if( masterFunction == 4 )
       {
-        dutyCycle = (float)myPanel.master.getState() / 256;
+        dutyCycle = myPanel.master.getState();
       }
       if( masterFunction == 1 )
       {
-        rampVol = (float)myPanel.master.getState() / 256;
+        rampVol = myPanel.master.getState();
       }
       if( masterFunction == 2 )
       {
-        sineVol = (float)myPanel.master.getState() / 256;
+        sineVol = myPanel.master.getState();
       }
       if( masterFunction == 3 )
       {
-        pulseVol = (float)myPanel.master.getState() / 256;
+        pulseVol = myPanel.master.getState();
       }
       if( masterFunction == 0 )  //Default state
       {
-        masterVol = (float)myPanel.master.getState() / 256;
+        masterVol = myPanel.master.getState();
       }
     }
 
-    int pulseOn = myPanel.pulse.getState();
-    int sineOn = myPanel.sine.getState();
-    int rampOn = myPanel.ramp.getState();
-
-    int waveCalcTemp;
-    int numWaveAdded;
-    
-    
     //Re-calculate shape
-    float rampVolTemp = rampVol * masterVol;  //scale all voices
-    float sineVolTemp = sineVol * masterVol;
-    float pulseVolTemp = pulseVol * masterVol;
+    
+    WaveGenerator testWave;
+    testWave.resetOffset();
+    // Parameters (all uint8_t): ( master, ramp, sine, pulseAmp, pulseDuty )
+    testWave.setParameters( masterVol, myPanel.ramp.getState() * rampVol, myPanel.sine.getState() * sineVol, myPanel.pulse.getState() * pulseVol, dutyCycle );
     for(int i = 0; i < 256; i++)
     {
-      waveCalcTemp = 0;
-      numWaveAdded = 0;
-      if( rampOn )
-      {
-        waveCalcTemp += get_sample( RAMPSHAPE, rampVolTemp, 1, i ) - 127;  //center
-        numWaveAdded++;
-      }
-      if( sineOn )
-      {
-        waveCalcTemp += get_sample( SINESHAPE, sineVolTemp, 1, i ) - 127;  //center
-        numWaveAdded++;
-      }
-      if( pulseOn )
-      {
-        waveCalcTemp += get_sample( PULSESHAPE, pulseVolTemp, dutyCycle, i ) - 127;  //center
-        numWaveAdded++;
-      }
+      wavetable[i] = testWave.getSample();
 
-      if( numWaveAdded > 0 )
-      {
-        wavetable[i] = ( waveCalcTemp / numWaveAdded ) + 127;  //127 justify
-      }
-      else
-      {
-        wavetable[i] = 127;
-      }
     }
     sei();
     //GTCCR &= ~_BV(PSRSYNC);
@@ -392,7 +362,7 @@ void sendDebugString( char* stringInput )
   uint8_t i = 0;
   while( stringInput[i] != 0x00 )
   {
-    myDebugger.sendByte( stringInput[i] );
+    //myDebugger.sendByte( stringInput[i] );
     delay(20);
     i++;
   }
